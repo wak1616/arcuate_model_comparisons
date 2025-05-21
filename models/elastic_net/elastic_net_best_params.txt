@@ -1,0 +1,11 @@
+Elastic Net Best Parameters
+===========================
+
+Alpha: 0.014744
+L1 Ratio: 0.9900
+
+Cross-Validation Performance:
+MSE: 39.7976
+RMSE: 6.3085
+MAE: 4.6105
+R²: 0.8507
