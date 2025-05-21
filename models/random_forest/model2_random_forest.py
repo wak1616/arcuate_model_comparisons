@@ -55,7 +55,7 @@ target = ['Arcuate_sweep_total']
 # Add the interaction term to the features list
 features = [
 'Age', 'Steep_axis_term', 'WTW_IOLMaster', 
-  'MeanK_IOLMaster', 'Treated_astig', 'Type', 
+  'Treated_astig', 'Type', 
   'AL', 'LASIK?'
 ]
 

@@ -35,7 +35,7 @@ def load_data():
     target = ['Arcuate_sweep_total']
     features = [
         'Age', 'Steep_axis_term', 'WTW_IOLMaster', 
-        'MeanK_IOLMaster', 'Treated_astig', 'Type', 
+        'Treated_astig', 'Type', 
         'AL', 'LASIK?'
     ]
     
@@ -216,8 +216,8 @@ try:
         reg_lambda=5.0,
         random_state=42,
         gamma=0.1,
-        monotone_constraints=(0, 0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
-        # Age(0), Steep_axis_term(0), WTW_IOLMaster(0), MeanK_IOLMaster(0), Treated_astig(+), Type(0), AL(0), LASIK?(0)
+        monotone_constraints=(0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
+        # Age(0), Steep_axis_term(0), WTW_IOLMaster(0), Treated_astig(+), Type(0), AL(0), LASIK?(0)
     )
     
     # Perform cross-validation and evaluate
@@ -246,7 +246,7 @@ try:
         random_state=42,
         gamma=0.1,
         min_child_weight=3,
-        monotone_constraints=(0, 0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
+        monotone_constraints=(0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
     )
     
     # Perform cross-validation and evaluate

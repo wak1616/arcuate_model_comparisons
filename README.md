@@ -24,6 +24,19 @@ The project implements and compares five different models:
    - Standard MLP branch for other features
    - Combined branches for final prediction
 
+## Feature Selection
+
+All models have been optimized to use the following features:
+- Age
+- Steep_axis_term
+- WTW_IOLMaster
+- Treated_astig
+- Type
+- AL
+- LASIK?
+
+Note: MeanK_IOLMaster was removed from all models after analysis showed it had minimal impact on prediction performance.
+
 ## Installation
 
 ```bash
@@ -59,21 +72,42 @@ Performance metrics from 5-fold cross-validation:
 
 | Model | R² | RMSE | MAE |
 |-------|-----|------|-----|
-| XGBoost | 0.9064 ± 0.0272 | 5.2076 ± 0.6939 | 3.2175 ± 0.2161 |
-| XGBoost Selective-Monotonic | 0.9105 ± 0.0239 | 5.0995 ± 0.6552 | 3.2481 ± 0.2297 |
-| XGBoost Smooth-Monotonic | 0.9109 ± 0.0237 | 5.0861 ± 0.6447 | 3.2446 ± 0.1858 |
-| Random Forest | 0.9064 ± 0.0234 | 5.2190 ± 0.5728 | 3.1756 ± 0.1717 |
-| Elastic Net | 0.8452 ± 0.0279 | 6.7376 ± 0.6788 | 4.8654 ± 0.3939 |
-| Neural Network Sigmoid-Monotonic | 0.8885 ± 0.0210 | 5.6882 ± 0.3511 | 3.9088 ± 0.2824 |
+| XGBoost | 0.9069 ± 0.0267 | 5.1951 ± 0.6816 | 3.2094 ± 0.2227 |
+| XGBoost Selective-Monotonic | 0.9111 ± 0.0241 | 5.0787 ± 0.6518 | 3.2111 ± 0.2170 |
+| XGBoost Smooth-Monotonic | 0.9105 ± 0.0257 | 5.0916 ± 0.6811 | 3.2357 ± 0.1918 |
+| Random Forest | 0.9070 ± 0.0248 | 5.1959 ± 0.6071 | 3.1700 ± 0.1756 |
+| Elastic Net | 0.8458 ± 0.0274 | 6.7246 ± 0.6663 | 4.8560 ± 0.3884 |
 
-The XGBoost Smooth-Monotonic model (Model 4) achieves the best overall performance while maintaining monotonicity. The Neural Network with Sigmoid-Monotonic constraint (Model 5) provides the most biologically plausible sigmoid-shaped relationship between treated astigmatism and arcuate sweep.
+The XGBoost Selective-Monotonic model (Model 3) achieves the best overall performance while maintaining monotonicity. The XGBoost Smooth-Monotonic model (Model 4) provides slightly smoother predictions with comparable performance.
 
 ## Key Findings
 
 - Monotonicity constraints improve model interpretability
 - Model smoothness is important for clinical applications
-- The sigmoid-shaped relationship produced by the neural network matches clinical expectations
-- XGBoost models offer slightly better accuracy while neural networks provide more natural curves
+- XGBoost models with monotonicity constraints offer the best balance of accuracy and interpretability
+- Removing MeanK_IOLMaster did not impact model performance, indicating it was a redundant feature
+- Feature importance analysis consistently shows Treated_astig, Steep_axis_term, and Type as the most influential predictors
+- Streamlined models with fewer features are more efficient while maintaining high accuracy
+
+## Recommended Model for Production
+
+After comprehensive evaluation, the **XGBoost Smooth-Monotonic model (Model 4)** is recommended for production use for the following reasons:
+
+1. **Superior smoothness**: The model provides gradual, smooth transitions in predictions as input values change, which is critical for clinical applications where small measurement variations should not result in abrupt changes in arcuate sweep recommendations.
+
+2. **Maintained monotonicity**: The model preserves the essential monotonic relationship between treated astigmatism and arcuate sweep, ensuring clinical validity.
+
+3. **Strong performance metrics**: While the Selective-Monotonic XGBoost has marginally better MSE/RMSE, the Smooth-Monotonic variant has comparable R² (0.9105 vs 0.9111) with the added benefit of prediction smoothness.
+
+4. **Hyperparameter optimization for clinical use**: The model's hyperparameters were specifically tuned to balance accuracy with smoothness:
+   - Lower learning rate (0.02 vs 0.05)
+   - Higher max_depth (6 vs 4) for finer gradations
+   - Added min_child_weight (3) to prevent overly specific splits
+   - Increased number of estimators (300 vs 100) for better ensemble averaging
+
+5. **Production-ready implementation**: The model has been implemented with XGBoost's robust serialization format, enabling straightforward deployment across platforms.
+
+The model's combination of performance, smoothness, and clinical interpretability makes it the optimal choice for real-world ophthalmological applications.
 
 ## Visualizations
 

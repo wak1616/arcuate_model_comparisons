@@ -1,0 +1,25 @@
+Random Forest Regression Model Results (without MeanK_IOLMaster)
+======================================================
+
+Model Parameters:
+n_estimators: 100
+max_depth: 10
+min_samples_split: 10
+min_samples_leaf: 4
+max_features: sqrt
+
+Model Performance:
+Mean Squared Error: 32.5749
+Root Mean Squared Error: 5.7074
+Mean Absolute Error: 4.3109
+R² Score: 0.8820
+
+Top 10 Feature Importances:
+Treated_astig: 0.6404
+Steep_axis_term: 0.1505
+Type_single: 0.0835
+Age: 0.0561
+AL: 0.0417
+WTW_IOLMaster: 0.0217
+LASIK?_no: 0.0045
+LASIK?_myopic: 0.0016

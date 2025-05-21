@@ -53,7 +53,7 @@ target = ['Arcuate_sweep_total']
 # Add the interaction term to the features list
 features = [
 'Age', 'Steep_axis_term', 'WTW_IOLMaster', 
-  'MeanK_IOLMaster', 'Treated_astig', 'Type', 
+  'Treated_astig', 'Type', 
   'AL', 'LASIK?'
 ]
 
@@ -72,7 +72,6 @@ monotonic_constraints = {feature: 0 for feature in features}
 monotonic_constraints['Age'] = 0  # No constraint
 monotonic_constraints['Steep_axis_term'] = 0  # No constraint
 monotonic_constraints['WTW_IOLMaster'] = 0  # No constraint
-monotonic_constraints['MeanK_IOLMaster'] = 0  # No constraint
 monotonic_constraints['Treated_astig'] = 1  # Strong positive correlation
 monotonic_constraints['AL'] = 0  # No constraint
 
@@ -98,7 +97,7 @@ params = {
     'random_state': 42,
     'gamma': 0.1,               
     'min_child_weight': 3,       # Added to prevent overly specific splits
-    'monotone_constraints': (0, 0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
+    'monotone_constraints': (0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
 }
 
 # Initialize/define the model by training it

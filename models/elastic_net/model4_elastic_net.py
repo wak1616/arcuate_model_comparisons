@@ -54,12 +54,12 @@ target = ['Arcuate_sweep_total']
 # Set up features
 features = [
 'Age', 'Steep_axis_term', 'WTW_IOLMaster', 
-  'MeanK_IOLMaster', 'Treated_astig', 'Type', 
+  'Treated_astig', 'Type', 
   'AL', 'LASIK?'
 ]
 
 # Identify numeric and categorical features
-numeric_features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'MeanK_IOLMaster', 'Treated_astig', 'AL']
+numeric_features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'Treated_astig', 'AL']
 categorical_features = ['Type', 'LASIK?']
 
 # Split dataset into training and testing sets

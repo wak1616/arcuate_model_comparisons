@@ -10,7 +10,7 @@ model_path = Path("elastic_net_best_model.pkl")
 model = joblib.load(model_path)
 
 # Get the feature names
-numeric_features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'MeanK_IOLMaster', 'Treated_astig', 'AL']
+numeric_features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'Treated_astig', 'AL']
 categorical_features = ['Type', 'LASIK?']
 
 # Get feature names from the pipeline
