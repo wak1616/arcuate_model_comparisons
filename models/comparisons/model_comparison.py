@@ -58,8 +58,11 @@ def evaluate_model_cv(model, X, y, model_name, n_folds=5, monotonic=False):
     r2_scores = []
     ev_scores = []
     
+    # Lists to store fold indices for plotting
+    fold_indices = []
+    
     # Perform cross-validation
-    for train_idx, test_idx in cv.split(X):
+    for fold_idx, (train_idx, test_idx) in enumerate(cv.split(X), 1):
         # Split data
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
@@ -127,8 +130,9 @@ def evaluate_model_cv(model, X, y, model_name, n_folds=5, monotonic=False):
         mae_scores.append(mae)
         r2_scores.append(r2)
         ev_scores.append(ev)
+        fold_indices.append(fold_idx)
         
-        print(f"Fold {len(mse_scores)}: MSE={mse:.4f}, RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
+        print(f"Fold {fold_idx}: MSE={mse:.4f}, RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
     
     # Calculate average metrics
     avg_mse = np.mean(mse_scores)
@@ -151,6 +155,19 @@ def evaluate_model_cv(model, X, y, model_name, n_folds=5, monotonic=False):
     print(f"R²: {avg_r2:.4f} ± {std_r2:.4f}")
     print(f"Explained Variance: {avg_ev:.4f} ± {std_ev:.4f}")
     
+    # Calculate coefficient of variation (CV) to measure relative stability
+    # Lower values indicate more stable metrics across folds
+    cv_mse = (std_mse / avg_mse) * 100 if avg_mse != 0 else float('inf')
+    cv_rmse = (std_rmse / avg_rmse) * 100 if avg_rmse != 0 else float('inf')
+    cv_mae = (std_mae / avg_mae) * 100 if avg_mae != 0 else float('inf')
+    cv_r2 = (std_r2 / avg_r2) * 100 if avg_r2 != 0 else float('inf')
+    
+    print(f"\nMetric Stability (Coefficient of Variation %):")
+    print(f"MSE CV: {cv_mse:.2f}% (lower is more stable)")
+    print(f"RMSE CV: {cv_rmse:.2f}% (lower is more stable)")
+    print(f"MAE CV: {cv_mae:.2f}% (lower is more stable)")
+    print(f"R² CV: {cv_r2:.2f}% (lower is more stable)")
+    
     return {
         'Model': model_name,
         'MSE': avg_mse,
@@ -162,7 +179,17 @@ def evaluate_model_cv(model, X, y, model_name, n_folds=5, monotonic=False):
         'R²': avg_r2,
         'R²_std': std_r2,
         'Explained Variance': avg_ev,
-        'EV_std': std_ev
+        'EV_std': std_ev,
+        'Fold_Indices': fold_indices,
+        'MSE_per_fold': mse_scores,
+        'RMSE_per_fold': rmse_scores,
+        'MAE_per_fold': mae_scores,
+        'R2_per_fold': r2_scores,
+        'EV_per_fold': ev_scores,
+        'MSE_CV': cv_mse,
+        'RMSE_CV': cv_rmse,
+        'MAE_CV': cv_mae,
+        'R2_CV': cv_r2
     }
 
 # Set up output directory for saving files
@@ -459,6 +486,10 @@ if len(model_evaluations) > 0:
         axis=1
     )
     
+    # Add coefficient of variation (stability metric)
+    for metric in ['MSE_CV', 'RMSE_CV', 'MAE_CV', 'R2_CV']:
+        formatted_df[metric.replace('_CV', ' CV%')] = comparison_df[metric].round(2).astype(str) + '%'
+    
     # Display results
     print("\nModel Comparison Results (with Cross-Validation):")
     print(formatted_df.to_string(index=False))
@@ -468,22 +499,116 @@ if len(model_evaluations) > 0:
     formatted_df.to_csv(results_file, index=False)
     print(f"\nComparison results saved to '{results_file}'")
 
-    # Create bar plots for model comparison
-    if len(model_evaluations) > 1:
-        # Create comparison plots for mean metrics
-        metrics_to_plot = ['MSE', 'RMSE', 'MAE', 'R²']
-        plt.figure(figsize=(15, 12))
+    # Create detailed CV fold tables for each model
+    cv_tables_dir = output_dir / 'cv_fold_tables'
+    os.makedirs(cv_tables_dir, exist_ok=True)
+    
+    for model_eval in model_evaluations:
+        model_name = model_eval['Model']
+        fold_metrics = pd.DataFrame({
+            'Fold': model_eval['Fold_Indices'],
+            'MSE': model_eval['MSE_per_fold'],
+            'RMSE': model_eval['RMSE_per_fold'],
+            'MAE': model_eval['MAE_per_fold'],
+            'R²': model_eval['R2_per_fold'],
+            'Explained Variance': model_eval['EV_per_fold']
+        })
         
+        # Round metrics for display
+        fold_metrics = fold_metrics.round(4)
+        
+        # Add a row with mean and std
+        mean_row = pd.DataFrame({
+            'Fold': ['Mean'],
+            'MSE': [model_eval['MSE']],
+            'RMSE': [model_eval['RMSE']],
+            'MAE': [model_eval['MAE']],
+            'R²': [model_eval['R²']],
+            'Explained Variance': [model_eval['Explained Variance']]
+        }).round(4)
+        
+        std_row = pd.DataFrame({
+            'Fold': ['Std'],
+            'MSE': [model_eval['MSE_std']],
+            'RMSE': [model_eval['RMSE_std']],
+            'MAE': [model_eval['MAE_std']],
+            'R²': [model_eval['R²_std']],
+            'Explained Variance': [model_eval['EV_std']]
+        }).round(4)
+        
+        cv_row = pd.DataFrame({
+            'Fold': ['CV%'],
+            'MSE': [model_eval['MSE_CV']],
+            'RMSE': [model_eval['RMSE_CV']],
+            'MAE': [model_eval['MAE_CV']],
+            'R²': [model_eval['R2_CV']],
+            'Explained Variance': [np.nan]  # No CV for EV
+        }).round(2)
+        
+        fold_metrics = pd.concat([fold_metrics, mean_row, std_row, cv_row], ignore_index=True)
+        
+        # Save to CSV
+        fold_metrics.to_csv(cv_tables_dir / f"{model_name.replace(' ', '_')}_cv_fold_metrics.csv", index=False)
+        
+        # Create fold metrics plot for this model
+        plt.figure(figsize=(12, 10))
+        
+        metrics_to_plot = ['MSE', 'RMSE', 'MAE', 'R²']
         for i, metric in enumerate(metrics_to_plot):
             plt.subplot(2, 2, i+1)
             
-            # Plot bars with error bars
-            bars = plt.bar(
-                comparison_df['Model'], 
-                comparison_df[metric],
-                yerr=comparison_df[f"{metric}_std"],
-                capsize=10
-            )
+            # Get values excluding the Mean, Std, and CV% rows
+            fold_values = model_eval[f"{metric if metric != 'R²' else 'R2'}_per_fold"]
+            mean_value = model_eval[metric if metric != 'R²' else 'R²']
+            std_value = model_eval[f"{metric if metric != 'R²' else 'R²'}_std"]
+            
+            # Plot individual fold values
+            plt.bar(model_eval['Fold_Indices'], fold_values, alpha=0.7)
+            
+            # Plot mean as a horizontal line
+            plt.axhline(y=mean_value, color='r', linestyle='-', label=f'Mean: {mean_value:.4f}')
+            
+            # Plot standard deviation range
+            plt.axhline(y=mean_value + std_value, color='g', linestyle='--', 
+                       label=f'Mean ± Std: {std_value:.4f}')
+            plt.axhline(y=mean_value - std_value, color='g', linestyle='--')
+            
+            plt.title(f'{metric} Across {len(fold_values)} Folds for {model_name}')
+            plt.xlabel('Fold Number')
+            plt.ylabel(metric)
+            plt.xticks(model_eval['Fold_Indices'])
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+            
+        plt.tight_layout()
+        plt.savefig(cv_tables_dir / f"{model_name.replace(' ', '_')}_cv_fold_metrics.png")
+        plt.close()
+    
+    # Create a comparison visualization of CV stability across models
+    if len(model_evaluations) > 1:
+        plt.figure(figsize=(14, 10))
+        
+        # Extract coefficient of variation data for comparison
+        models = [eval_dict['Model'] for eval_dict in model_evaluations]
+        mse_cv = [eval_dict['MSE_CV'] for eval_dict in model_evaluations]
+        rmse_cv = [eval_dict['RMSE_CV'] for eval_dict in model_evaluations]
+        mae_cv = [eval_dict['MAE_CV'] for eval_dict in model_evaluations]
+        r2_cv = [eval_dict['R2_CV'] for eval_dict in model_evaluations]
+        
+        # Create a DataFrame for easier plotting
+        cv_df = pd.DataFrame({
+            'Model': models,
+            'MSE CV%': mse_cv,
+            'RMSE CV%': rmse_cv,
+            'MAE CV%': mae_cv,
+            'R² CV%': r2_cv
+        })
+        
+        # Plot coefficient of variation for each metric across models
+        metrics_cv = ['MSE CV%', 'RMSE CV%', 'MAE CV%', 'R² CV%']
+        for i, metric in enumerate(metrics_cv):
+            plt.subplot(2, 2, i+1)
+            bars = plt.bar(cv_df['Model'], cv_df[metric], alpha=0.7)
             
             # Add value labels on bars
             for bar in bars:
@@ -491,73 +616,105 @@ if len(model_evaluations) > 0:
                 plt.text(
                     bar.get_x() + bar.get_width()/2.,
                     height,
-                    f'{height:.4f}',
+                    f'{height:.2f}%',
                     ha='center', va='bottom', 
                     rotation=0,
                     fontsize=9
                 )
-                
-            plt.title(f'Comparison of {metric} across Models (with Std Dev)')
-            plt.ylabel(metric)
-            plt.grid(axis='y', linestyle='--', alpha=0.7)
-            plt.xticks(rotation=15)  # Rotate labels for better readability
+            
+            plt.title(f'{metric} Across Models (Lower is More Stable)')
+            plt.ylabel('Coefficient of Variation (%)')
+            plt.grid(axis='y', linestyle='--', alpha=0.3)
+            plt.xticks(rotation=15)
             
         plt.tight_layout()
-        # Save visualization to the comparisons directory
-        viz_file = output_dir / 'model_cv_performance_comparison.png'
-        plt.savefig(viz_file)
-        print(f"Comparison visualizations saved to '{viz_file}'")
+        plt.savefig(output_dir / 'model_cv_stability_comparison.png')
+        plt.close()
         
-        # Create a special visualization to show prediction smoothness
-        try:
-            # Create a grid of Treated_astig values
-            astig_range = np.linspace(X['Treated_astig'].min(), X['Treated_astig'].max(), 100)
-            X_sample = X.sample(10, random_state=42).copy()
+        # Create detailed fold-by-fold comparison across models
+        plt.figure(figsize=(15, 12))
+        
+        # Plot each metric across all folds for all models
+        metrics_to_compare = ['RMSE', 'MAE', 'R²']
+        for i, metric in enumerate(metrics_to_compare):
+            plt.subplot(len(metrics_to_compare), 1, i+1)
             
-            # Function to predict across astig_range
-            def predict_across_astig(model, X_base, astig_values):
-                predictions = []
-                for astig in astig_values:
-                    X_temp = X_base.copy()
-                    X_temp['Treated_astig'] = astig
-                    
-                    # Handle categorical features
-                    X_temp['Type'] = X_temp['Type'].astype('category').cat.codes
-                    X_temp['LASIK?'] = X_temp['LASIK?'].astype('category').cat.codes
-                    
-                    pred = model.predict(X_temp)
-                    predictions.append(np.mean(pred))
-                return predictions
+            metric_key = 'R2' if metric == 'R²' else metric
             
-            plt.figure(figsize=(12, 8))
+            for model_eval in model_evaluations:
+                plt.plot(
+                    model_eval['Fold_Indices'], 
+                    model_eval[f'{metric_key}_per_fold'],
+                    'o-', 
+                    label=model_eval['Model'],
+                    alpha=0.7
+                )
             
-            # Get predictions for each model across astig_range
-            if 'xgb_model' in locals():
-                standard_preds = predict_across_astig(xgb_model, X_sample, astig_range)
-                plt.plot(astig_range, standard_preds, 'b-', label='XGBoost Standard', alpha=0.7)
-            
-            if 'xgb_monotonic_model' in locals():
-                monotonic_preds = predict_across_astig(xgb_monotonic_model, X_sample, astig_range)
-                plt.plot(astig_range, monotonic_preds, 'g-', label='XGBoost Monotonic', alpha=0.7)
-            
-            if 'xgb_smooth_model' in locals():
-                smooth_preds = predict_across_astig(xgb_smooth_model, X_sample, astig_range)
-                plt.plot(astig_range, smooth_preds, 'r-', linewidth=2.5, label='XGBoost Smooth-Monotonic')
-            
-            plt.title('Comparison of Model Smoothness\n(Predictions vs. Treated Astigmatism)')
-            plt.xlabel('Treated Astigmatism (D)')
-            plt.ylabel('Predicted Arcuate Sweep')
+            plt.title(f'{metric} Across All Folds for All Models')
+            plt.xlabel('Fold Number')
+            plt.ylabel(metric)
             plt.grid(True, alpha=0.3)
-            plt.legend()
+            plt.legend(loc='best')
             
-            # Save the smoothness comparison
-            smoothness_viz_file = output_dir / 'model_smoothness_comparison.png'
-            plt.savefig(smoothness_viz_file)
-            print(f"Smoothness comparison visualization saved to '{smoothness_viz_file}'")
+        plt.tight_layout()
+        plt.savefig(output_dir / 'model_cv_fold_comparison.png')
+        plt.close()
+        
+        # Create a heatmap of fold metrics for each model
+        for metric in ['RMSE', 'MAE', 'R²']:
+            metric_key = 'R2' if metric == 'R²' else metric
+            
+            # Prepare data for heatmap
+            heatmap_data = []
+            model_names = []
+            
+            for model_eval in model_evaluations:
+                model_names.append(model_eval['Model'])
+                heatmap_data.append(model_eval[f'{metric_key}_per_fold'])
+            
+            # Create heatmap
+            plt.figure(figsize=(12, len(model_names) * 0.8 + 2))
+            
+            # Convert to numpy array and transpose to get models as rows and folds as columns
+            heatmap_array = np.array(heatmap_data)
+            
+            # Create a custom colormap
+            if metric == 'R²':
+                # For R², higher is better (use viridis)
+                cmap = 'viridis'
+                # Set vmin and vmax to ensure 0 is a distinct color
+                vmin = max(0, heatmap_array.min() - 0.1)
+                vmax = min(1, heatmap_array.max() + 0.1)
+            else:
+                # For error metrics, lower is better (use viridis_r)
+                cmap = 'viridis_r'
+                # Set vmin and vmax to ensure proper color scale
+                vmin = max(0, heatmap_array.min() - heatmap_array.std())
+                vmax = heatmap_array.max() + heatmap_array.std()
+            
+            # Create heatmap
+            ax = sns.heatmap(
+                heatmap_array,
+                annot=True, 
+                fmt=".4f",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                yticklabels=model_names,
+                xticklabels=[f'Fold {i}' for i in range(1, 6)],
+                cbar_kws={'label': metric}
+            )
+            
+            plt.title(f'{metric} Comparison Across Models and Folds')
+            plt.tight_layout()
+            plt.savefig(output_dir / f'model_cv_{metric_key}_heatmap.png')
             plt.close()
-        except Exception as e:
-            print(f"Error creating smoothness comparison: {e}")
+
+        print(f"\nDetailed cross-validation fold tables and visualizations saved in '{cv_tables_dir}'")
+        print(f"Stability comparison saved as '{output_dir / 'model_cv_stability_comparison.png'}'")
+        print(f"Fold-by-fold comparison saved as '{output_dir / 'model_cv_fold_comparison.png'}'")
+        print(f"Metric heatmaps saved in the output directory")
     else:
-        print("Only one model available for comparison, skipping visualization plots.")
+        print("Only one model available for comparison, skipping cross-model stability visualizations.")
 else:
     print("No models available for comparison.") 
