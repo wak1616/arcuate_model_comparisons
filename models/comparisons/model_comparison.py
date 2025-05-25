@@ -115,6 +115,11 @@ def evaluate_model_cv(model, X, y, model_name, n_folds=5, monotonic=False):
             # Just pass the data directly to the model
             model.fit(X_train, y_train.values.ravel())
             y_pred = model.predict(X_test)
+        elif model_name in ['Neural Network', 'Monotonic Neural Network']:
+            # For Neural Network models, they handle their own preprocessing internally
+            # Just pass the data directly to the model
+            model.fit(X_train, y_train.values.ravel())
+            y_pred = model.predict(X_test)
         else:
             raise ValueError(f"Unknown model type: {model_name}")
         
@@ -210,13 +215,16 @@ try:
     import xgboost as xgb
     from xgboost import XGBRegressor
     
-    # Create XGBoost model
+    # Create XGBoost model with GPU acceleration
     xgb_model = XGBRegressor(
         n_estimators=100,
         max_depth=4,
         learning_rate=0.1,
-        random_state=42
+        random_state=42,
+        tree_method='gpu_hist',  # Use GPU for training
+        gpu_id=0  # Use first GPU
     )
+    print("  XGBoost using GPU acceleration")
     
     # Perform cross-validation and evaluate
     xgb_eval = evaluate_model_cv(xgb_model, X, y, 'XGBoost')
@@ -232,7 +240,7 @@ try:
     import xgboost as xgb
     from xgboost import XGBRegressor
     
-    # Create XGBoost monotonic model with selected monotonicity constraint
+    # Create XGBoost monotonic model with selected monotonicity constraint and GPU acceleration
     xgb_monotonic_model = XGBRegressor(
         n_estimators=100,
         max_depth=4,
@@ -243,9 +251,12 @@ try:
         reg_lambda=5.0,
         random_state=42,
         gamma=0.1,
-        monotone_constraints=(0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
+        monotone_constraints=(0, 0, 0, 1, 0, 0, 0),  # Only Treated_astig has monotonic constraint
+        tree_method='gpu_hist',  # Use GPU for training
+        gpu_id=0  # Use first GPU
         # Age(0), Steep_axis_term(0), WTW_IOLMaster(0), Treated_astig(+), Type(0), AL(0), LASIK?(0)
     )
+    print("  XGBoost Selective-Monotonic using GPU acceleration")
     
     # Perform cross-validation and evaluate
     xgb_monotonic_eval = evaluate_model_cv(xgb_monotonic_model, X, y, 'XGBoost Selective-Monotonic')
@@ -261,7 +272,7 @@ try:
     import xgboost as xgb
     from xgboost import XGBRegressor
     
-    # Create XGBoost smooth model with fine-tuned parameters for smoother predictions
+    # Create XGBoost smooth model with fine-tuned parameters for smoother predictions and GPU acceleration
     xgb_smooth_model = XGBRegressor(
         n_estimators=300,
         max_depth=6,
@@ -273,8 +284,11 @@ try:
         random_state=42,
         gamma=0.1,
         min_child_weight=3,
-        monotone_constraints=(0, 0, 0, 1, 0, 0, 0)  # Only Treated_astig has monotonic constraint
+        monotone_constraints=(0, 0, 0, 1, 0, 0, 0),  # Only Treated_astig has monotonic constraint
+        tree_method='gpu_hist',  # Use GPU for training
+        gpu_id=0  # Use first GPU
     )
+    print("  XGBoost Smooth-Monotonic using GPU acceleration")
     
     # Perform cross-validation and evaluate
     xgb_smooth_eval = evaluate_model_cv(xgb_smooth_model, X, y, 'XGBoost Smooth-Monotonic')
@@ -328,45 +342,50 @@ try:
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../neural_net')))
     import torch
     import torch.nn as nn
+    from sklearn.preprocessing import StandardScaler, OneHotEncoder
+    from sklearn.compose import ColumnTransformer
     
-    # Define the MonotonicLayer class needed to load the model
+    # Define the MonotonicLayer class (from model5)
     class MonotonicLayer(nn.Module):
         """Custom layer that ensures monotonicity by using positive weights"""
         def __init__(self, in_features, out_features):
             super(MonotonicLayer, self).__init__()
-            # Initialize weights but ensure they stay positive
             self.weight = nn.Parameter(torch.randn(out_features, in_features) * 0.1)
             self.bias = nn.Parameter(torch.zeros(out_features))
             
         def forward(self, x):
-            # Apply ReLU to weights to force them to be positive
             positive_weights = torch.relu(self.weight)
             return torch.matmul(x, positive_weights.t()) + self.bias
-    
-    # Define the HybridMonotonicMLP class needed to load the model
+
+    # Define the SigmoidMonotonic class (from model5)
+    class SigmoidMonotonic(nn.Module):
+        """Scaled sigmoid activation that maintains monotonicity"""
+        def __init__(self, scale_factor=1.0):
+            super(SigmoidMonotonic, self).__init__()
+            self.scale_factor = scale_factor
+            
+        def forward(self, x):
+            return self.scale_factor * torch.sigmoid(x)
+
+    # Define the HybridMonotonicMLP class (from model5)
     class HybridMonotonicMLP(nn.Module):
-        """
-        A hybrid neural network with two branches:
-        1. Monotonic branch: Processes Treated_astig with monotonicity constraint
-        2. Standard MLP branch: Processes all other features
-        The branches are combined for the final prediction
-        """
         def __init__(self, num_numeric, num_categorical_encoded, monotonic_feature_idx,
                     hidden_size=32, dropout_rate=0.2):
             super(HybridMonotonicMLP, self).__init__()
             
-            # Architecture dimensions
             self.num_numeric = num_numeric
             self.num_categorical_encoded = num_categorical_encoded
             self.monotonic_feature_idx = monotonic_feature_idx
             self.hidden_size = hidden_size
             
-            # Monotonic Path (for Treated_astig)
+            # Monotonic Path (for Treated_astig) - Updated for sigmoid-like behavior
             self.monotonic_path = nn.Sequential(
                 MonotonicLayer(1, hidden_size),
-                nn.ReLU(),
+                nn.Tanh(),
+                MonotonicLayer(hidden_size, hidden_size),
+                nn.Tanh(),
                 MonotonicLayer(hidden_size, hidden_size // 2),
-                nn.ReLU(),
+                SigmoidMonotonic(scale_factor=20.0),
                 MonotonicLayer(hidden_size // 2, 1)
             )
             
@@ -384,14 +403,18 @@ try:
                 nn.Linear(hidden_size // 2, 1)
             )
             
-            # Final combination layer
-            self.combiner = nn.Linear(2, 1)
+            # Final combination layer with adaptive weights
+            self.combiner = nn.Sequential(
+                nn.Linear(2, hidden_size // 4),
+                nn.ReLU(),
+                nn.Linear(hidden_size // 4, 1)
+            )
             
         def forward(self, x):
             # Split features
-            monotonic_feature = x[:, self.monotonic_feature_idx].unsqueeze(1)  # Treated_astig
+            monotonic_feature = x[:, self.monotonic_feature_idx].unsqueeze(1)
             
-            # Create mask for other features (all numeric except monotonic + all categorical)
+            # Create mask for other features
             other_features_idx = list(range(self.num_numeric))
             other_features_idx.remove(self.monotonic_feature_idx)
             other_features_idx.extend(range(self.num_numeric, self.num_numeric + self.num_categorical_encoded))
@@ -407,63 +430,330 @@ try:
             output = self.combiner(combined)
             
             return output
-    
-    # Load the Neural Network model
-    nn_model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../neural_net/neural_network_model.pt'))
-    
-    if os.path.exists(nn_model_path):
-        # Add safe globals for sklearn components
-        torch.serialization.add_safe_globals(['sklearn.compose._column_transformer.ColumnTransformer'])
-        
-        # Define a wrapper class for compatibility with sklearn-style models
-        class NeuralNetworkWrapper:
-            def __init__(self, model_path):
-                # Use weights_only=False to load the full checkpoint including preprocessor
-                self.checkpoint = torch.load(model_path, weights_only=False)
-                
-                # Extract model configuration
-                config = self.checkpoint['model_config']
-                self.model = HybridMonotonicMLP(
-                    num_numeric=config['num_numeric'],
-                    num_categorical_encoded=config['num_categorical_encoded'],
-                    monotonic_feature_idx=config['monotonic_feature_idx'],
-                    hidden_size=config['hidden_size'],
-                    dropout_rate=config['dropout_rate']
-                )
-                
-                # Load model weights
-                self.model.load_state_dict(self.checkpoint['model_state_dict'])
-                self.model.eval()
-                
-                # Load preprocessor
-                self.preprocessor = self.checkpoint['preprocessor']
-                
-            def fit(self, X, y):
-                # This is just a placeholder, as the model is already trained
-                return self
+
+        # Define a wrapper class that matches model5 exactly
+    class NeuralNetworkWrapper:
+        def __init__(self):
+            # Set device (GPU if available, otherwise CPU)
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            print(f"  Neural Network using device: {self.device}")
             
-            def predict(self, X):
-                # Preprocess the input
-                X_processed = self.preprocessor.transform(X)
-                X_tensor = torch.FloatTensor(X_processed)
+            # Define features exactly as in model5_neural_net.py
+            self.numeric_features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'Treated_astig', 'AL']
+            self.categorical_features = ['Type', 'LASIK?']
+            self.monotonic_feature = 'Treated_astig'
+            self.monotonic_feature_idx = self.numeric_features.index(self.monotonic_feature)
+            
+            # Initialize preprocessor exactly as in model5
+            self.preprocessor = ColumnTransformer(
+                transformers=[
+                    ('num', StandardScaler(), self.numeric_features),
+                    ('cat', OneHotEncoder(drop='first'), self.categorical_features)
+                ])
+            
+            self.model = None
+            
+        def fit(self, X, y):
+            # Extract only the features that model5 expects (same order as model5)
+            features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'Treated_astig', 'Type', 'AL', 'LASIK?']
+            X_model5 = X[features]
+            
+            # Fit preprocessor and transform data
+            X_processed = self.preprocessor.fit_transform(X_model5)
+            
+            # Get dimensions
+            n_numeric = len(self.numeric_features)
+            n_categorical_encoded = X_processed.shape[1] - n_numeric
+            
+            # Convert to tensors and create DataLoader (like original model5)
+            X_tensor = torch.FloatTensor(X_processed)
+            y_tensor = torch.FloatTensor(y.reshape(-1, 1))
+            
+            from torch.utils.data import TensorDataset, DataLoader
+            dataset = TensorDataset(X_tensor, y_tensor)
+            dataloader = DataLoader(dataset, batch_size=32, shuffle=True)  # Same as model5
                 
-                # Make predictions
-                with torch.no_grad():
-                    pred = self.model(X_tensor).numpy()
+            # Initialize model with exact same parameters as model5
+            self.model = HybridMonotonicMLP(
+                num_numeric=n_numeric,
+                num_categorical_encoded=n_categorical_encoded,
+                monotonic_feature_idx=self.monotonic_feature_idx,
+                hidden_size=64,  # Same as model5
+                dropout_rate=0.3  # Same as model5
+            ).to(self.device)
+            
+            # Training setup - same as model5
+            criterion = nn.MSELoss()
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=1e-5)
+            
+            # Training loop with early stopping (like original model5)
+            self.model.train()
+            best_loss = float('inf')
+            patience_counter = 0
+            early_stopping_patience = 15
+            best_model_state = None
+            
+            for epoch in range(150):  # Same as model5
+                running_loss = 0.0
                 
-                return pred
+                for inputs, targets in dataloader:
+                    inputs, targets = inputs.to(self.device), targets.to(self.device)
+                    
+                    optimizer.zero_grad()
+                    outputs = self.model(inputs)
+                    loss = criterion(outputs, targets)
+                    loss.backward()
+                    optimizer.step()
+                    
+                    running_loss += loss.item() * inputs.size(0)
                 
-        # Create the wrapper model
-        nn_wrapper = NeuralNetworkWrapper(nn_model_path)
-        
-        # Perform cross-validation and evaluate
-        nn_eval = evaluate_model_cv(nn_wrapper, X, y, 'Neural Network Monotonic')
-        model_evaluations.append(nn_eval)
-        print("Neural Network model evaluated successfully.")
-    else:
-        print(f"Neural Network model file not found at {nn_model_path}")
+                epoch_loss = running_loss / len(dataset)
+                
+                # Early stopping logic (same as model5)
+                if epoch_loss < best_loss:
+                    best_loss = epoch_loss
+                    patience_counter = 0
+                    best_model_state = self.model.state_dict().copy()
+                else:
+                    patience_counter += 1
+                    
+                if patience_counter >= early_stopping_patience:
+                    if best_model_state is not None:
+                        self.model.load_state_dict(best_model_state)
+                    break
+            
+            # Make sure we use the best model
+            if best_model_state is not None:
+                self.model.load_state_dict(best_model_state)
+            
+            return self
+            
+        def predict(self, X):
+            # Extract only the features that model5 expects (same order as model5)
+            features = ['Age', 'Steep_axis_term', 'WTW_IOLMaster', 'Treated_astig', 'Type', 'AL', 'LASIK?']
+            X_model5 = X[features]
+            
+            # Transform data using fitted preprocessor
+            X_processed = self.preprocessor.transform(X_model5)
+            X_tensor = torch.FloatTensor(X_processed).to(self.device)
+                
+            # Make predictions
+            self.model.eval()
+            with torch.no_grad():
+                pred = self.model(X_tensor).cpu().numpy()
+                
+            return pred.flatten()
+    
+    # Create the wrapper model and perform cross-validation
+    nn_wrapper = NeuralNetworkWrapper()
+    
+    # Perform cross-validation and evaluate
+    nn_eval = evaluate_model_cv(nn_wrapper, X, y, 'Neural Network')
+    model_evaluations.append(nn_eval)
+    print("Neural Network model evaluated successfully.")
+    
 except Exception as e:
     print(f"Error evaluating Neural Network model: {e}")
+
+# Try evaluating Monotonic Neural Network model (model7 from the monotonicNN directory)
+try:
+    print("Loading Monotonic Neural Network model...")
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../monotonicNN')))
+    import torch
+    import torch.nn as nn
+    from sklearn.preprocessing import StandardScaler, LabelEncoder
+    from torch.utils.data import TensorDataset, DataLoader
+    
+    # Define the SimpleMonotonicNN class needed for the model
+    class SimpleMonotonicNN(nn.Module):
+        def __init__(self, other_input_dim):
+            super().__init__()
+            self.unconstrained_path = nn.Sequential(
+                nn.Linear(other_input_dim, 48),
+                nn.LeakyReLU(0.1),
+                nn.Linear(48, 10),
+                nn.ReLU()
+            )
+            
+        def forward(self, x_other, x_monotonic):
+            coefficients = self.unconstrained_path(x_other)
+            monotonic_feature_contributions = coefficients * x_monotonic
+            return monotonic_feature_contributions.sum(dim=1, keepdim=True)
+    
+    # Define a wrapper class that trains the model from scratch for each fold (like model5)
+    class MonotonicNeuralNetworkWrapper:
+        def __init__(self):
+            # Set device (GPU if available, otherwise CPU)
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            print(f"  MonotonicNN using device: {self.device}")
+            
+            # Initialize components that will be fitted during training
+            self.type_le = LabelEncoder()
+            self.lasik_le = LabelEncoder()
+            self.other_scaler = StandardScaler()
+            self.monotonic_scaler = StandardScaler()
+            self.target_scaler = StandardScaler()
+            self.model = None
+            self.x_train_min = None
+            self.other_features_order = None
+            self.monotonic_feature_order = None
+            
+        def fit(self, X, y):
+            # Add Treatment_astigmatism column if it doesn't exist (copy from Treated_astig)
+            X_processed = X.copy()
+            if 'Treatment_astigmatism' not in X_processed.columns:
+                X_processed['Treatment_astigmatism'] = X_processed['Treated_astig']
+            
+            # Handle NaN values
+            wtw_median = X_processed['WTW_IOLMaster'].median()
+            al_median = X_processed['AL'].median()
+            X_processed['WTW_IOLMaster'] = X_processed['WTW_IOLMaster'].fillna(wtw_median)
+            X_processed['AL'] = X_processed['AL'].fillna(al_median)
+            
+            # Extract monotonic feature and calculate min
+            x_monotonic = X_processed['Treated_astig']
+            self.x_train_min = x_monotonic.min()
+            
+            # Create monotonic features
+            monotonic_features_dict = {
+                'constant': np.ones_like(x_monotonic),
+                'linear': x_monotonic,
+                'logistic_shift_left_1': 1 / (1 + np.exp(-(x_monotonic+1))),
+                'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x_monotonic+0.5))),
+                'logistic_center': 1 / (1 + np.exp(-x_monotonic)),
+                'logarithmic': np.log(x_monotonic - self.x_train_min + 1),
+                'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x_monotonic-0.5))),
+                'logistic_shift_right_1': 1 / (1 + np.exp(-(x_monotonic-1))),
+                'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x_monotonic-1.5))),
+                'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x_monotonic+1.5)))
+            }
+            X_monotonic = pd.DataFrame(monotonic_features_dict)
+            
+            # Prepare other features
+            other_features = [
+                'Age', 'Steep_axis_term', 'WTW_IOLMaster',
+                'AL', 'LASIK?', 'Treatment_astigmatism', 'Type'
+            ]
+            X_other = X_processed[other_features].copy()
+            
+            # Fit and transform encoders
+            X_other['Type'] = self.type_le.fit_transform(X_other['Type'])
+            X_other['LASIK?'] = self.lasik_le.fit_transform(X_other['LASIK?'])
+            
+            # Store feature orders
+            self.other_features_order = list(X_other.columns)
+            self.monotonic_feature_order = list(X_monotonic.columns)
+            
+            # Fit and transform scalers
+            X_other_scaled = pd.DataFrame(self.other_scaler.fit_transform(X_other), columns=self.other_features_order)
+            X_monotonic_scaled = pd.DataFrame(self.monotonic_scaler.fit_transform(X_monotonic), columns=self.monotonic_feature_order)
+            y_scaled = self.target_scaler.fit_transform(y.reshape(-1, 1))
+            
+            # Convert to tensors and move to device
+            x_other_tensor = torch.FloatTensor(X_other_scaled.values).to(self.device)
+            x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values).to(self.device)
+            y_tensor = torch.FloatTensor(y_scaled).to(self.device)
+            
+            # Initialize and train model
+            self.model = SimpleMonotonicNN(len(self.other_features_order)).to(self.device)
+            criterion = nn.MSELoss()
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=0.0001)
+            
+            # Training loop (simplified for CV)
+            self.model.train()
+            for epoch in range(100):  # Reduced epochs for CV
+                optimizer.zero_grad()
+                outputs = self.model(x_other_tensor, x_monotonic_tensor)
+                loss = criterion(outputs, y_tensor)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                optimizer.step()
+            
+            return self
+            
+        def predict(self, X):
+            # Add Treatment_astigmatism column if it doesn't exist
+            X_processed = X.copy()
+            if 'Treatment_astigmatism' not in X_processed.columns:
+                X_processed['Treatment_astigmatism'] = X_processed['Treated_astig']
+            
+            # Handle NaN values using training medians
+            wtw_idx = self.other_features_order.index('WTW_IOLMaster')
+            al_idx = self.other_features_order.index('AL')
+            wtw_median = self.other_scaler.mean_[wtw_idx]
+            al_median = self.other_scaler.mean_[al_idx]
+            
+            X_processed['WTW_IOLMaster'] = X_processed['WTW_IOLMaster'].fillna(wtw_median)
+            X_processed['AL'] = X_processed['AL'].fillna(al_median)
+            
+            # Extract monotonic feature
+            x_monotonic = X_processed['Treated_astig']
+            
+            # Create monotonic features
+            monotonic_features_dict = {
+                'constant': np.ones_like(x_monotonic),
+                'linear': x_monotonic,
+                'logistic_shift_left_1': 1 / (1 + np.exp(-(x_monotonic+1))),
+                'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x_monotonic+0.5))),
+                'logistic_center': 1 / (1 + np.exp(-x_monotonic)),
+                'logarithmic': np.log(x_monotonic - self.x_train_min + 1),
+                'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x_monotonic-0.5))),
+                'logistic_shift_right_1': 1 / (1 + np.exp(-(x_monotonic-1))),
+                'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x_monotonic-1.5))),
+                'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x_monotonic+1.5)))
+            }
+            X_monotonic = pd.DataFrame(monotonic_features_dict, columns=self.monotonic_feature_order)
+            
+            # Prepare other features
+            other_features = [
+                'Age', 'Steep_axis_term', 'WTW_IOLMaster',
+                'AL', 'LASIK?', 'Treatment_astigmatism', 'Type'
+            ]
+            X_other = X_processed[other_features].copy()
+            
+            # Transform categorical features
+            X_other['Type'] = self.type_le.transform(X_other['Type'].map(
+                lambda s: s if s in self.type_le.classes_ else self.type_le.classes_[0]
+            ))
+            X_other['LASIK?'] = self.lasik_le.transform(X_other['LASIK?'].map(
+                lambda s: s if s in self.lasik_le.classes_ else self.lasik_le.classes_[0]
+            ))
+            
+            # Ensure feature order
+            X_other = X_other[self.other_features_order]
+            
+            # Scale features
+            X_other_scaled = pd.DataFrame(
+                self.other_scaler.transform(X_other), 
+                columns=self.other_features_order
+            )
+            X_monotonic_scaled = pd.DataFrame(
+                self.monotonic_scaler.transform(X_monotonic), 
+                columns=self.monotonic_feature_order
+            )
+            
+            # Convert to tensors and predict
+            x_other_tensor = torch.FloatTensor(X_other_scaled.values).to(self.device)
+            x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values).to(self.device)
+            
+            self.model.eval()
+            with torch.no_grad():
+                pred_scaled = self.model(x_other_tensor, x_monotonic_tensor)
+                pred = self.target_scaler.inverse_transform(pred_scaled.cpu().numpy())
+                pred = np.maximum(0.0, pred)  # Ensure non-negative
+            
+            return pred.flatten()
+    
+    # Create the wrapper model and perform cross-validation
+    monotonic_nn_wrapper = MonotonicNeuralNetworkWrapper()
+    
+    # Perform cross-validation and evaluate
+    monotonic_nn_eval = evaluate_model_cv(monotonic_nn_wrapper, X, y, 'Monotonic Neural Network')
+    model_evaluations.append(monotonic_nn_eval)
+    print("Monotonic Neural Network model evaluated successfully.")
+    
+except Exception as e:
+    print(f"Error evaluating Monotonic Neural Network model: {e}")
 
 # Create a comparison DataFrame
 comparison_df = pd.DataFrame(model_evaluations)
