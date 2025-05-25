@@ -123,6 +123,9 @@ y_pred = best_rf.predict(X_test_rf_final)
 
 """## Part 4: Model Evaluation and Results"""
 
+# Get current directory for saving files
+current_dir = Path(__file__).parent
+
 # Evaluate model
 print("\nRandom Forest Performance:")
 mse = mean_squared_error(y_test, y_pred)
@@ -163,7 +166,7 @@ plt.figure(figsize=(12, 8))
 sns.barplot(x='Importance', y='Feature', data=importance_df.head(10))
 plt.title('Random Forest Feature Importances')
 plt.tight_layout()
-plt.savefig('feature_importance_rf.png')
+plt.savefig(current_dir / 'feature_importance_rf.png')
 
 # Plot actual vs predicted values
 plt.figure(figsize=(10, 6))
@@ -173,7 +176,7 @@ plt.xlabel('Actual')
 plt.ylabel('Predicted')
 plt.title('Random Forest: Actual vs Predicted Values')
 plt.tight_layout()
-plt.savefig('model_predictions_vs_actual_rf.png')
+plt.savefig(current_dir / 'model_predictions_vs_actual_rf.png')
 
 # Plot residuals
 residuals = y_test.values.ravel() - y_pred
@@ -183,10 +186,7 @@ plt.xlabel('Residuals')
 plt.ylabel('Frequency')
 plt.title('Random Forest: Residuals Distribution')
 plt.tight_layout()
-plt.savefig('residuals_distribution_rf.png')
-
-# Get current directory
-current_dir = Path(__file__).parent
+plt.savefig(current_dir / 'residuals_distribution_rf.png')
 
 # Save model results to file
 with open(current_dir / 'rf_model_results.txt', 'w') as f:

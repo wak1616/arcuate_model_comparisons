@@ -5,8 +5,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 
-# Load the saved model
-model_path = Path("elastic_net_best_model.pkl")
+# Get current directory and load the saved model
+current_dir = Path(__file__).parent
+model_path = current_dir / "elastic_net_best_model.pkl"
 model = joblib.load(model_path)
 
 # Get the feature names
@@ -39,8 +40,8 @@ print("\nFeature Importance (by coefficient magnitude):")
 print(feature_importance[['Feature', 'Coefficient', 'Abs_Coefficient']].to_string(index=False))
 
 # Save feature importance to file
-feature_importance.to_csv('elastic_net_feature_importance.csv', index=False)
-print(f"\nFeature importance saved to elastic_net_feature_importance.csv")
+feature_importance.to_csv(current_dir / 'elastic_net_feature_importance.csv', index=False)
+print(f"\nFeature importance saved to {current_dir / 'elastic_net_feature_importance.csv'}")
 
 # Plot feature importance
 plt.figure(figsize=(12, 8))
@@ -49,5 +50,5 @@ plt.title('Elastic Net Coefficients')
 plt.xlabel('Coefficient')
 plt.ylabel('Feature')
 plt.tight_layout()
-plt.savefig('elastic_net_coefficients.png')
+plt.savefig(current_dir / 'elastic_net_coefficients.png')
 plt.show() 

@@ -210,6 +210,9 @@ y_pred = model.predict(dtest)
 y_pred_full = model_full.predict(dfull)
 print("Predictions generated.")
 
+# Set up output directory for saving files
+current_dir = Path(__file__).parent
+
 # Visualize Predictions vs Actual Values for full resdiual model (TEST DATASET)
 plt.figure(figsize=(10,10))
 plt.scatter(y_test, y_pred, alpha=0.5)
@@ -217,7 +220,7 @@ plt.xlabel('Actual Acruate Sweep')
 plt.ylabel('Predicted Arcuate Sweep')
 plt.title('Arcuate Sweep Prediction Model with Multiple Monotonic Constraints')
 plt.plot([10, 55], [10, 55], 'r--', alpha=0.5)
-plt.savefig('model_predictions_vs_actual.png')
+plt.savefig(current_dir / 'model_predictions_vs_actual.png')
 plt.close()
 
 # Calculating Performance Metrics (TEST DATASET)
@@ -250,14 +253,14 @@ plt.hist(residuals, bins=50, edgecolor='k', alpha=0.7)
 plt.xlabel('Residuals')
 plt.ylabel('Frequency')
 plt.title('Distribution of Arcuate Prediction Error (Multiple Monotonic Constraints)')
-plt.savefig('residuals_distribution.png')
+plt.savefig(current_dir / 'residuals_distribution.png')
 plt.close()
 
 # Examine feature importance
 plt.figure(figsize=(10, 8))
 xgb.plot_importance(model_full)
 plt.title('Feature Importance with Multiple Monotonic Constraints')
-plt.savefig('feature_importance.png')
+plt.savefig(current_dir / 'feature_importance.png')
 plt.close()
 
 # Print feature importance as text
@@ -268,8 +271,9 @@ for feature, score in sorted_importance:
     print(f"{feature}: {score}")
 
 # Save the model
-model_full.save_model('XGBoost_monotonic_model_latest.json')
-print("\nModel saved as 'XGBoost_monotonic_model_latest.json'")
+model_path = current_dir / 'XGBoost_monotonic_model_latest.json'
+model_full.save_model(str(model_path))
+print(f"\nModel saved as '{model_path}'")
 
 # Create a summary table for quick reference
 print("\n" + "="*60)
